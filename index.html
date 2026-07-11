@@ -111,7 +111,8 @@
   }
   input[type="text"],
   input[type="number"],
-  input[type="date"]{
+  input[type="date"],
+  select{
     width:100%;
     font-size:16px;
     padding:13px 14px;
@@ -125,11 +126,34 @@
     appearance:none;
     font-family:inherit;
   }
-  input:focus{
+  input:focus, select:focus{
     outline:none;
     border-color:var(--blue);
     box-shadow:0 0 0 3px rgba(27,95,175,0.15);
   }
+  .select-wrap{position:relative;}
+  .select-wrap::after{
+    content:"";
+    position:absolute;
+    right:16px;
+    top:50%;
+    width:9px;
+    height:9px;
+    border-right:2px solid var(--gray);
+    border-bottom:2px solid var(--gray);
+    transform:translateY(-70%) rotate(45deg);
+    pointer-events:none;
+  }
+  select.placeholder-shown{color:var(--gray);}
+  .field-error{
+    display:none;
+    color:#B3261E;
+    font-size:13px;
+    font-weight:600;
+    margin-top:6px;
+  }
+  .field-error.show{display:block;}
+  select.input-error{border-color:#B3261E;}
   .price-wrap{position:relative;}
   .price-wrap .prefix{
     position:absolute;
@@ -398,6 +422,21 @@
         </div>
       </div>
       <div class="field">
+        <label for="paymentStatus">Payment</label>
+        <div class="select-wrap">
+          <select id="paymentStatus" class="placeholder-shown">
+            <option value="" disabled selected>Select payment status</option>
+            <option value="cash">Paid &#8212; Cash</option>
+            <option value="venmo">Paid &#8212; Venmo</option>
+            <option value="zelle">Paid &#8212; Zelle</option>
+            <option value="paypal">Paid &#8212; PayPal</option>
+            <option value="cc">Paid &#8212; Credit Card</option>
+            <option value="unpaid">Unpaid</option>
+          </select>
+        </div>
+        <div class="field-error" id="paymentError">Select a payment status first</div>
+      </div>
+      <div class="field">
         <label>Job type</label>
         <div class="toggle-group" id="jobTypeGroup">
           <button type="button" class="toggle-btn active" data-value="exterior">Exterior</button>
@@ -520,6 +559,23 @@
     return "Exterior Window Cleaning";
   }
 
+  var PAYMENT_LABELS = {
+    cash: "Paid — Cash",
+    venmo: "Paid — Venmo",
+    zelle: "Paid — Zelle",
+    paypal: "Paid — PayPal",
+    cc: "Paid — Credit Card",
+    unpaid: "Unpaid"
+  };
+
+  function paymentLabel(value){
+    return PAYMENT_LABELS[value] || "Not recorded";
+  }
+
+  function isPaid(value){
+    return !!PAYMENT_LABELS[value] && value !== "unpaid";
+  }
+
   function sanitizeFilename(name){
     var base = (name || "Customer").trim();
     base = base.replace(/[^a-zA-Z0-9]+/g, "");
@@ -562,16 +618,30 @@
   // ---------- Init date ----------
   $("jobDate").value = todayISO();
 
+  // ---------- Payment dropdown ----------
+
+  function setPaymentValue(value){
+    var sel = $("paymentStatus");
+    sel.value = PAYMENT_LABELS[value] ? value : "";
+    sel.classList.toggle("placeholder-shown", sel.value === "");
+  }
+
+  $("paymentStatus").addEventListener("change", function(){
+    this.classList.toggle("placeholder-shown", this.value === "");
+    this.classList.remove("input-error");
+    $("paymentError").classList.remove("show");
+  });
+
   // ---------- Message templates ----------
 
   function buildLongMessage(jobType){
     return "Thank you for choosing Window Whisperers! We hope you enjoyed your " + jobTypeLabel(jobType) +
-      " window cleaning. Most homeowners typically schedule twice a year, and if you'd like a spot on next year's schedule, we offer discounted pricing for returning customers. Also, if you could leave us a Google review, it would be greatly appreciated: " + REVIEW_LINK;
+      " window cleaning. Attached is your invoice — we send one to every client, even for jobs already paid, so you have a record of the transaction. Most homeowners typically schedule twice a year, and if you'd like a spot on next year's schedule, we offer discounted pricing for returning customers. Also, if you could leave us a Google review, it would be greatly appreciated: " + REVIEW_LINK;
   }
 
   function buildShortMessage(jobType){
     return "Thanks so much for choosing Window Whisperers! We hope you loved your " + jobTypeLabel(jobType) +
-      " cleaning. Most homeowners book twice a year — want a spot on next year's schedule at our returning-customer discount? And if you enjoyed our work, a quick Google review means a lot: " + REVIEW_LINK;
+      " cleaning. Your invoice is attached for your records. Most homeowners book twice a year — want a spot on next year's schedule at our returning-customer discount? And if you enjoyed our work, a quick Google review means a lot: " + REVIEW_LINK;
   }
 
   function currentMessage(){
@@ -687,7 +757,7 @@
       name.textContent = entry.name || "(no name)";
       var meta = document.createElement("div");
       meta.className = "history-meta";
-      meta.textContent = formatDateForDisplay(entry.date) + " · " + formatMoney(entry.price) + " · " + jobTypeInvoiceDescription(entry.jobType).replace(" Window Cleaning","");
+      meta.textContent = formatDateForDisplay(entry.date) + " · " + formatMoney(entry.price) + " · " + jobTypeInvoiceDescription(entry.jobType).replace(" Window Cleaning","") + " · " + paymentLabel(entry.payment);
       info.appendChild(name);
       info.appendChild(meta);
 
@@ -733,6 +803,9 @@
     $("jobDate").value = entry.date || todayISO();
     $("address").value = entry.address || "";
     setJobType(entry.jobType || "exterior");
+    // Old entries from before payment tracking have no payment field:
+    // leave the dropdown on the placeholder rather than guessing.
+    setPaymentValue(entry.payment);
     renderOutputs(collectFormData());
   }
 
@@ -871,6 +944,7 @@
       doc.setTextColor(navy[0], navy[1], navy[2]);
       doc.text("Invoice #: " + data.invoiceNumber, pageWidth - margin, bandY + 20, { align: "right" });
       doc.text("Date: " + formatDateForDisplay(data.date), pageWidth - margin, bandY + 34, { align: "right" });
+      doc.text("Payment: " + paymentLabel(data.payment), pageWidth - margin, bandY + 48, { align: "right" });
 
       // ---- Bill To ----
       var billY = titleY + 30;
@@ -928,12 +1002,13 @@
         doc.line(margin, y, pageWidth - margin, y);
       });
 
-      // total row
+      // total row ("Total Due" when the job is unpaid)
       var totalRowH = 30;
+      var totalLabel = (data.payment === "unpaid") ? "TOTAL DUE" : "TOTAL";
       doc.setFont("helvetica", "bold");
       doc.setFontSize(12);
       doc.setTextColor(navy[0], navy[1], navy[2]);
-      doc.text("TOTAL", descX, y + totalRowH / 2 + 4);
+      doc.text(totalLabel, descX, y + totalRowH / 2 + 4);
       doc.setTextColor(blue[0], blue[1], blue[2]);
       doc.text(formatMoney(data.price), amountX, y + totalRowH / 2 + 4, { align: "right" });
       y += totalRowH;
@@ -941,6 +1016,29 @@
       doc.setDrawColor(blue[0], blue[1], blue[2]);
       doc.setLineWidth(1.25);
       doc.line(margin, y, pageWidth - margin, y);
+
+      // payment status badge (skipped when status was never recorded)
+      if(PAYMENT_LABELS[data.payment]){
+        var badgeText = isPaid(data.payment) ? "PAID" : "BALANCE DUE";
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(9);
+        var badgePadX = 10;
+        var badgeH = 20;
+        var badgeW = doc.getTextWidth(badgeText) + badgePadX * 2;
+        var badgeX = pageWidth - margin - badgeW;
+        var badgeY = y + 12;
+        if(isPaid(data.payment)){
+          doc.setFillColor(blue[0], blue[1], blue[2]);
+          doc.roundedRect(badgeX, badgeY, badgeW, badgeH, 4, 4, "F");
+          doc.setTextColor(255, 255, 255);
+        } else {
+          doc.setDrawColor(gray[0], gray[1], gray[2]);
+          doc.setLineWidth(1);
+          doc.roundedRect(badgeX, badgeY, badgeW, badgeH, 4, 4, "S");
+          doc.setTextColor(gray[0], gray[1], gray[2]);
+        }
+        doc.text(badgeText, badgeX + badgeW / 2, badgeY + badgeH / 2 + 3, { align: "center" });
+      }
 
       // ---- Footer ----
       var footerY = pageHeight - 60;
@@ -987,7 +1085,8 @@
       price: price,
       jobType: state.jobType,
       date: date,
-      address: address
+      address: address,
+      payment: $("paymentStatus").value
     };
   }
 
@@ -1005,6 +1104,14 @@
 
   function runGenerate(){
     var data = collectFormData();
+
+    if(!PAYMENT_LABELS[data.payment]){
+      $("paymentStatus").classList.add("input-error");
+      $("paymentError").classList.add("show");
+      $("paymentStatus").scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+
     renderOutputs(data);
 
     // Log a new history entry only for a fresh Generate, not for Regenerate
@@ -1014,7 +1121,8 @@
       price: data.price,
       jobType: data.jobType,
       date: data.date,
-      address: data.address
+      address: data.address,
+      payment: data.payment
     };
     addHistoryEntry(entry);
   }
@@ -1031,6 +1139,7 @@
       jobType: data.jobType,
       date: data.date,
       address: data.address,
+      payment: data.payment,
       invoiceNumber: invoiceNumber
     });
     if(ok){
